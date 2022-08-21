@@ -4,10 +4,9 @@ import (
 	"bufio"
 	"encoding/csv"
 	"fmt"
-	"io"
-	"load_multiple_rows/database"
-	"load_multiple_rows/entities"
-	"load_multiple_rows/helper"
+	"load_multiple_files/database"
+	"load_multiple_files/entities"
+	"load_multiple_files/helper"
 	"log"
 	"os"
 	"strconv"
@@ -19,52 +18,34 @@ type LoadWorker struct {
 }
 
 func (w *LoadWorker) LoadCsv(
-	db *database.DB, 
+	db *database.DB,
 	path string,
-	start_idx int,
-	end_idx int,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
 
 	// Run process
-	var cnt int = 0
 	var first bool = true
 	var buildings []entities.Building
 
 	csvFile, _ := os.Open(path)
 	defer csvFile.Close()
-	reader := csv.NewReader(bufio.NewReader(csvFile))
-	for {
-		line, error := reader.Read()
 
-		// Skip header
+	reader := csv.NewReader(bufio.NewReader(csvFile))
+	lines, err := reader.ReadAll()
+	if err != nil {
+		log.Panic(err)
+	}
+
+	for _, line := range lines {
 		if first {
 			first = false
-			continue
+			continue // Skip header
 		}
 
-		// Break if error found
-		if error == io.EOF {
-			break
-		} else if error != nil {
-			log.Fatal(error)
-		}
-
-		// Skip unnecessary rows
-		if (cnt == end_idx) {
-			break
-		} else if (cnt < start_idx) {
-			cnt = cnt + 1
-			continue
-		}
-
-		// Prepare values
+		// Prepare values (map one by one)
 		bd := helper.ParseTransform(line)
 		buildings = append(buildings, bd)
-
-		// Add increment cnt
-		cnt = cnt + 1
 	}
 
 	// Prepare sql statement
@@ -97,11 +78,15 @@ func (w *LoadWorker) LoadCsv(
 		log.Panic(err)
 	}
 
-	_, err = stmt.Exec(vals...)
+	res, err := stmt.Exec(vals...)
 	if err != nil {
 		log.Panic(err)
 	}
 
-	fmt.Printf("Rows loaded from index %s to index %s at worker %s\n", 
-				strconv.Itoa(start_idx), strconv.Itoa(end_idx), w.Id)
+	rowCnt, err := res.RowsAffected()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("%s rows loaded from worker %s\n", strconv.Itoa(int(rowCnt)), w.Id)
 }

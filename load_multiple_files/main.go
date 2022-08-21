@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"load_multiple_rows/database"
-	"load_multiple_rows/workerpool"
+	"load_multiple_files/database"
+	"load_multiple_files/workerpool"
 	"log"
-	"math"
 	"math/rand"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -17,9 +17,6 @@ func main() {
 
 	// Define variables
 	var wg sync.WaitGroup
-	var max_load int = 1000 // Maximum insert postgresql
-	var total_data int = 1000000 // Total rows
-	var total_thread int = int(math.Ceil(float64(total_data) / float64(max_load)))
 	rand.Seed(time.Now().Unix())
 
 	// Set db connection
@@ -27,10 +24,10 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
-	// db.SetMaxOpenConns(50)
+	db.SetMaxOpenConns(50)
 
 	// Fill worker pool
-	numberOfWorkers := 100 // Max connection postgres
+	numberOfWorkers := 100 // Can adjust it later
 	workerArray := make([]workerpool.Worker, 0) // Fill with worker interface
 	for i := 0; i < numberOfWorkers; i++ {
 		w := &workerpool.LoadWorker{Id: strconv.FormatInt(int64(i), 10)}
@@ -41,11 +38,13 @@ func main() {
 	workerPool := &workerpool.WorkerPool{Pool: workerArray, Wg: &wg}
 
 	// Run job
-	for i := 0; i < total_thread; i++ {
-		idx_start := i * max_load
-		idx_end := max_load + i * max_load
+	files, err := filepath.Glob("./data/*") // 1000 files with 1000 rows foreach
+	if err != nil {
+        log.Fatal(err)
+    }
 
-		workerPool.Job(db, "building.csv", idx_start, idx_end)
+	for _, file := range files {
+		workerPool.Job(db, file)
 	}
 
 	// Wait job
@@ -55,7 +54,11 @@ func main() {
 	fmt.Printf("Total execution time %s\n", elapsed.String())
 
 	// Benchmarking
-	// Load 1 million rows from 1 file
-	// With setMaxOpenConn 50, worker 100 ==> 4m56.72s
-	// Without setMaxOpenConn, worker 100 ==> 4m54.90s
+	// Load 1 million rows from 1000 files with 1000 rows foreach
+	// MaxOpenConn: 5, worker: 5 ==> 22.51s, 23.43s
+	// MaxOpenConn: 5, worker: 100 ==> 22.87s, 22.01
+	// MaxOpenConn: 50, worker: 50 ==> 19.52s, 20.43s
+	// MaxOpenConn: 50, worker: 100 ==> 18.62s, 19.83s
+	// MaxOpenConn: 80, worker: 80 ==> 20.10s, 20.31s
+	// MaxOpenConn: 80, worker: 100 ==> 19.43s, 20.05s
 }
